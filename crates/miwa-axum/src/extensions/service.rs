@@ -1,4 +1,6 @@
-use axum::{body::Body, Router};
+use std::net::SocketAddr;
+
+use axum::Router;
 use miwa::core::{Extension, SystemContext, SystemResult};
 use miwa::derive::extension;
 use tracing::info;
@@ -23,9 +25,9 @@ impl Extension for WebServiceExtension {
             let ctx_inner = ctx.clone();
             let routers_cloned = routers.clone();
             tokio::task::spawn(async move {
-                let app: Router<WebServiceState, _> = routers_cloned.into_iter().fold(
-                    Router::<WebServiceState, Body>::new(),
-                    |acc: Router<WebServiceState, _>, router| match router.kind {
+                let app: Router<WebServiceState> = routers_cloned.into_iter().fold(
+                    Router::<WebServiceState>::new(),
+                    |acc: Router<WebServiceState>, router| match router.kind {
                         RouterKind::Nest(nest) => acc.nest(&nest, router.router),
                         RouterKind::Merge => acc.merge(router.router),
                     },
@@ -33,14 +35,11 @@ impl Extension for WebServiceExtension {
 
                 let app = app.with_state(WebServiceState);
 
-                let addr = format!("127.0.0.1:{}", server.port).parse().unwrap();
-
+                let addr: SocketAddr = format!("127.0.0.1:{}", server.port).parse().unwrap();
+                let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
                 info!("Starting server with context {} at: {} ", ctx_inner, addr);
 
-                axum::Server::bind(&addr)
-                    .serve(app.into_make_service())
-                    .await
-                    .unwrap();
+                axum::serve(listener, app).await.unwrap();
             });
         }
         Ok(())
